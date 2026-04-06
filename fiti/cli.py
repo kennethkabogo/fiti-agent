@@ -5,6 +5,8 @@ from fiti.state import StateManager
 from fiti.vault import TopicVault
 from fiti.compiler import CompilerEngine
 from fiti.query import QueryEngine
+from fiti.linter import LinterEngine
+import os
 
 def require_active_topic(state) -> TopicVault:
     topic = state.get_active_topic()
@@ -108,6 +110,36 @@ def cmd_ask(args: argparse.Namespace) -> None:
         print(f"Query failed: {e}")
         sys.exit(1)
 
+def check_pro_license():
+    if not os.environ.get("FITI_PRO_KEY"):
+        print("⭐️ FITI PRO FEATURE ⭐️")
+        print("The automated memory linter is a premium feature. Please upgrade at fiti.sh/pro and set FITI_PRO_KEY.")
+        sys.exit(1)
+
+def cmd_lint(args: argparse.Namespace) -> None:
+    check_pro_license()
+    state = StateManager()
+    vault = require_active_topic(state)
+    
+    print(f"Linting topic: {vault.name}...")
+    try:
+        linter = LinterEngine(vault)
+    except RuntimeError as e:
+        print(e)
+        sys.exit(1)
+        
+    broken_links = linter.find_broken_links()
+    if broken_links:
+        print(f"Found {len(broken_links)} broken links:")
+        for bl in broken_links:
+            print(f"  - {bl}")
+    else:
+        print("No broken links found.")
+        
+    print("\nRunning LLM Health Check...")
+    result = linter.run_health_check(fix=args.fix)
+    print(f"\n{result}")
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fiti - Topic-Scoped LLM Knowledge CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -136,6 +168,10 @@ def main() -> None:
     group.add_argument("--slides", action="store_true", help="Output answer as a Marp slide deck")
     group.add_argument("--data", action="store_true", help="Output answer as a matplotlib chart script")
     p_ask.set_defaults(func=cmd_ask)
+
+    p_lint = sub.add_parser("lint", help="Run health check and find broken links (PRO)")
+    p_lint.add_argument("--fix", action="store_true", help="Auto-fix structural issues in the Index")
+    p_lint.set_defaults(func=cmd_lint)
 
     args = parser.parse_args()
     args.func(args)
