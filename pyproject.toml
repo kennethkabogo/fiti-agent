@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fiti-agent"
+version = "0.1.0"
+description = "Topic-Scoped LLM Knowledge CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+fiti = "fiti.cli:main"
