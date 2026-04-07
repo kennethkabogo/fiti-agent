@@ -138,3 +138,55 @@ def test_vault_init_rejects_spaces_in_name(tmp_path):
     with patch.object(Path, "home", return_value=tmp_path):
         with pytest.raises(ValueError, match="Invalid topic name"):
             TopicVault("my topic")
+
+
+# ── backup_index ────────────────────────────────────────────────────────────
+
+def test_backup_index_creates_bak_file(tmp_path):
+    vault = make_vault(tmp_path)
+    vault.ensure_structure()
+    vault.index_file.write_text("# My Index")
+    bak = vault.backup_index()
+    assert bak is not None
+    assert bak.exists()
+    assert bak.read_text() == "# My Index"
+
+
+def test_backup_index_returns_none_when_no_index(tmp_path):
+    vault = make_vault(tmp_path)
+    vault.ensure_structure()
+    vault.index_file.unlink()
+    assert vault.backup_index() is None
+
+
+def test_backup_index_returns_none_for_symlink(tmp_path):
+    vault = make_vault(tmp_path)
+    vault.ensure_structure()
+    real = tmp_path / "real_index.md"
+    real.write_text("# Real")
+    vault.index_file.unlink()
+    vault.index_file.symlink_to(real)
+    assert vault.backup_index() is None
+
+
+# ── stats ────────────────────────────────────────────────────────────────────
+
+def test_stats_fresh_vault(tmp_path):
+    vault = make_vault(tmp_path)
+    vault.ensure_structure()
+    s = vault.stats()
+    assert s["pending"] == 0
+    assert s["summaries"] == 0
+    assert s["concepts"] == 0
+    assert s["queries"] == 0
+
+
+def test_stats_counts_files(tmp_path):
+    vault = make_vault(tmp_path)
+    vault.ensure_structure()
+    (vault.wiki_summaries_dir / "a.md").write_text("s")
+    (vault.wiki_summaries_dir / "b.md").write_text("s")
+    (vault.wiki_concepts_dir / "c.md").write_text("c")
+    s = vault.stats()
+    assert s["summaries"] == 2
+    assert s["concepts"] == 1

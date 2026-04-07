@@ -2,7 +2,11 @@ import re
 from typing import List
 from fiti.api_client import APIClient
 
-_COMPILER_TAGS = {"SUMMARY", "END_SUMMARY", "UPDATED_INDEX", "END_UPDATED_INDEX", "OPTIMIZED_INDEX", "END_OPTIMIZED_INDEX"}
+_COMPILER_TAGS = {
+    "SUMMARY", "END_SUMMARY",
+    "UPDATED_INDEX", "END_UPDATED_INDEX",
+    "OPTIMIZED_INDEX", "END_OPTIMIZED_INDEX",
+}
 
 
 class LinterEngine:
@@ -55,6 +59,8 @@ Identify any structural issues: duplicate or overlapping concepts, missing overa
                 opt_index = match.group(1).strip()
                 if self.vault.index_file.is_symlink():
                     return "Error: INDEX.md is a symlink — refusing to overwrite."
+                # Back up before overwriting
+                self.vault.backup_index()
                 with open(self.vault.index_file, "w") as f:
                     f.write(opt_index)
                 return "Index has been successfully rebuilt and optimized."

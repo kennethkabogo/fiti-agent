@@ -9,7 +9,7 @@ class CompilerEngine:
         self.client = client or APIClient()
 
     def summarize_and_compile(self, file_path: Path):
-        with open(file_path, "r") as f:
+        with open(file_path, "r", errors="replace") as f:
             content = f.read()
 
         with open(self.vault.index_file, "r") as f:
@@ -55,6 +55,9 @@ Output your response EXACTLY in this format:
                 raise RuntimeError(f"Output path is a symlink: {summary_path}")
             if self.vault.index_file.is_symlink():
                 raise RuntimeError("INDEX.md is a symlink — refusing to overwrite.")
+
+            # Back up current index before modifying
+            self.vault.backup_index()
 
             with open(summary_path, "w") as f:
                 f.write(summary)
