@@ -1,6 +1,8 @@
 import json
+import os
 from pathlib import Path
 from typing import Optional
+
 
 class StateManager:
     def __init__(self):
@@ -21,8 +23,10 @@ class StateManager:
             return {}
 
     def save_state(self, state: dict):
-        with open(self.state_file, "w") as f:
+        tmp = self.state_file.with_suffix(".json.tmp")
+        with open(tmp, "w") as f:
             json.dump(state, f, indent=2)
+        os.replace(tmp, self.state_file)
 
     def get_active_topic(self) -> Optional[str]:
         return self.load_state().get("active_topic")

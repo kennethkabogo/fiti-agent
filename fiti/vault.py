@@ -1,6 +1,8 @@
+import os
 import shutil
 from pathlib import Path
 from typing import List
+
 
 class TopicVault:
     def __init__(self, topic_name: str):
@@ -30,10 +32,17 @@ class TopicVault:
     def list_raw_files(self) -> List[Path]:
         if not self.raw_dir.exists():
             return []
-        return [p for p in self.raw_dir.rglob("*") if p.is_file()]
+        processed_dir = self.raw_dir / "processed"
+        return [
+            p for p in self.raw_dir.rglob("*")
+            if p.is_file() and not p.is_relative_to(processed_dir)
+        ]
 
     def ingest_file(self, file_path: Path) -> Path:
+        name = file_path.name
+        if os.sep in name or (os.altsep and os.altsep in name) or name.startswith(".."):
+            raise ValueError(f"Invalid filename: {name!r}")
         self.ensure_structure()
-        dest = self.raw_dir / file_path.name
+        dest = self.raw_dir / name
         shutil.copy2(file_path, dest)
         return dest
