@@ -100,6 +100,9 @@ sequenceDiagram
 | `fiti list` | Show all vaults with stats and active marker |
 | `fiti delete <topic>` | Delete a vault (asks for confirmation) |
 | `fiti delete <topic> --yes` | Delete without confirmation prompt |
+| `fiti export <topic>` | Export vault to a `.fiti.zip` archive |
+| `fiti export <topic> -o path.zip` | Export to a specific path |
+| `fiti import <archive.zip>` | Import a vault from a `.fiti.zip` archive |
 | `fiti status` | Show active topic and pending files |
 | `fiti config` | Show effective configuration and config file path |
 
@@ -110,7 +113,7 @@ sequenceDiagram
 | `fiti ingest <file>` | Add a raw document to the active topic |
 | `fiti compile` | Process uncompiled files with an LLM |
 | `fiti compile --dry-run` | Preview what would be compiled without calling the LLM |
-| `fiti watch <dir>` | Monitor a directory and auto-ingest new files |
+| `fiti watch <dir>` | Monitor a directory and auto-ingest new files (shows running count) |
 | `fiti watch <dir> --compile` | Also compile each ingested file immediately |
 
 #### Querying
@@ -119,6 +122,7 @@ sequenceDiagram
 |---|---|
 | `fiti ask "<question>"` | Query the wiki and save a response |
 | `fiti ask "<question>" --topics t1,t2` | Include extra vaults as context |
+| `fiti ask "<question>" -o report.md` | Save output to a specific file |
 | `fiti ask --slides "<question>"` | Output as a Marp slide deck |
 | `fiti ask --data "<question>"` | Output as a matplotlib chart script |
 | `fiti search <keyword>` | Search wiki files without an LLM |
@@ -131,7 +135,8 @@ sequenceDiagram
 | `fiti agent "<goal>"` | Run an autonomous multi-step workflow |
 | `fiti agent "<goal>" --max-steps N` | Limit tool-use iterations |
 | `fiti agent "<goal>" --resume <id>` | Continue a prior session |
-| `fiti agent --list-sessions` | List saved sessions for the active vault |
+| `fiti agent` | List saved sessions (no goal = show sessions) |
+| `fiti agent --list-sessions` | Explicitly list saved sessions |
 
 #### Maintenance *(PRO)*
 

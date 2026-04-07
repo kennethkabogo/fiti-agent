@@ -40,7 +40,13 @@ class QueryEngine:
             context += self._gather_context_from_vault(vault, label_prefix=prefix)
         return context
 
-    def execute_query(self, question: str, mode: str, extra_vaults: list | None = None):
+    def execute_query(
+        self,
+        question: str,
+        mode: str,
+        extra_vaults: list | None = None,
+        output_path: "Path | None" = None,
+    ):
         context = self._gather_context(extra_vaults)
 
         if mode == "slides":
@@ -74,9 +80,12 @@ If mode is data, please save the generated plot to {self.vault.assets_dir}/plot_
             response = re.sub(r"\n```$", "", response)
             response = response.strip()
 
-        slug = re.sub(r'[^a-zA-Z0-9]+', '_', question.lower())[:30].strip('_') or "query"
-        timestamp = int(datetime.now().timestamp())
-        outfile = self.vault.wiki_queries_dir / f"{slug}_{timestamp}.{extension}"
+        if output_path is not None:
+            outfile = output_path
+        else:
+            slug = re.sub(r'[^a-zA-Z0-9]+', '_', question.lower())[:30].strip('_') or "query"
+            timestamp = int(datetime.now().timestamp())
+            outfile = self.vault.wiki_queries_dir / f"{slug}_{timestamp}.{extension}"
 
         if outfile.is_symlink():
             raise RuntimeError(f"Output path is a symlink: {outfile}")
