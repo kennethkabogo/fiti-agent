@@ -1,24 +1,27 @@
 import re
-from fiti.compiler import CompilerEngine
 from typing import List
+from fiti.api_client import APIClient
+
+_COMPILER_TAGS = {"SUMMARY", "END_SUMMARY", "UPDATED_INDEX", "END_UPDATED_INDEX", "OPTIMIZED_INDEX", "END_OPTIMIZED_INDEX"}
+
 
 class LinterEngine:
-    def __init__(self, vault):
+    def __init__(self, vault, client: APIClient = None):
         self.vault = vault
-        self.compiler = CompilerEngine(vault)
+        self.client = client or APIClient()
 
     def find_broken_links(self) -> List[str]:
         broken = []
         wiki_files = list(self.vault.wiki_dir.rglob("*.md"))
-        
-        valid_concepts = [p.stem for p in self.vault.wiki_concepts_dir.rglob("*.md")]
-        
+
+        valid_concepts = {p.stem for p in self.vault.wiki_concepts_dir.rglob("*.md")}
+
         for f in wiki_files:
             with open(f, "r") as file:
                 content = file.read()
                 links = re.findall(r"\[\[(.*?)\]\]", content)
                 for link in links:
-                    if link in ["SUMMARY", "END_SUMMARY", "UPDATED_INDEX", "END_UPDATED_INDEX", "OPTIMIZED_INDEX", "END_OPTIMIZED_INDEX"]:
+                    if link in _COMPILER_TAGS:
                         continue
                     if link not in valid_concepts:
                         broken.append(f"Broken link '[[{link}]]' found in {f.name}")
@@ -37,11 +40,11 @@ Review this current Index:
 {index_content}
 ---
 Identify any structural issues: duplicate or overlapping concepts, missing overarching themes, or poor organization.
-"""     
+"""
         if fix:
             prompt += "\nOUTPUT REQUIREMENT: Return a completely rewritten, optimized version of the INDEX.md wrapped in [[OPTIMIZED_INDEX]] and [[END_OPTIMIZED_INDEX]] tags. Do not return anything else."
-            response = self.compiler.call_gemini(prompt) if self.compiler.gemini_api_key else self.compiler.call_anthropic(prompt)
-            
+            response = self.client.call(prompt)
+
             match = re.search(r"\[\[OPTIMIZED_INDEX\]\](.*?)\[\[END_OPTIMIZED_INDEX\]\]", response, re.DOTALL)
             if match:
                 opt_index = match.group(1).strip()
@@ -52,5 +55,4 @@ Identify any structural issues: duplicate or overlapping concepts, missing overa
                 return f"Failed to parse optimization. Raw response:\n{response}"
         else:
             prompt += "\nOUTPUT REQUIREMENT: Provide a 3-bullet-point summary of recommended fixes for the index structure."
-            response = self.compiler.call_gemini(prompt) if self.compiler.gemini_api_key else self.compiler.call_anthropic(prompt)
-            return response
+            return self.client.call(prompt)

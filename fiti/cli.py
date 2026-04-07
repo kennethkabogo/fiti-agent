@@ -1,4 +1,5 @@
 import argparse
+import re
 import sys
 from pathlib import Path
 from fiti.state import StateManager
@@ -7,6 +8,15 @@ from fiti.compiler import CompilerEngine
 from fiti.query import QueryEngine
 from fiti.linter import LinterEngine
 import os
+
+_TOPIC_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
+
+
+def _validate_topic(topic: str) -> None:
+    if not _TOPIC_RE.match(topic):
+        print(f"Invalid topic name '{topic}'. Use only letters, digits, hyphens, and underscores.")
+        sys.exit(1)
+
 
 def require_active_topic(state) -> TopicVault:
     topic = state.get_active_topic()
@@ -19,7 +29,9 @@ def require_active_topic(state) -> TopicVault:
         sys.exit(1)
     return vault
 
+
 def cmd_new(args: argparse.Namespace) -> None:
+    _validate_topic(args.topic)
     vault = TopicVault(args.topic)
     if vault.exists():
         print(f"Topic '{args.topic}' already exists.")
@@ -27,7 +39,9 @@ def cmd_new(args: argparse.Namespace) -> None:
     vault.ensure_structure()
     print(f"Created new topic vault: {args.topic}")
 
+
 def cmd_use(args: argparse.Namespace) -> None:
+    _validate_topic(args.topic)
     vault = TopicVault(args.topic)
     if not vault.exists():
         print(f"Topic '{args.topic}' does not exist. Do you want to try `fiti new {args.topic}`?")
@@ -35,6 +49,7 @@ def cmd_use(args: argparse.Namespace) -> None:
     state = StateManager()
     state.set_active_topic(args.topic)
     print(f"Switched to topic: {args.topic}")
+
 
 def cmd_status(args: argparse.Namespace) -> None:
     state = StateManager()
@@ -50,8 +65,8 @@ def cmd_status(args: argparse.Namespace) -> None:
     print(f"Active Topic: {topic}")
     print(f"Raw uncompiled files: {len(files)}")
     for f in files:
-        if f.parent.name != "processed":
-            print(f"  - {f.name}")
+        print(f"  - {f.name}")
+
 
 def cmd_ingest(args: argparse.Namespace) -> None:
     state = StateManager()
@@ -63,52 +78,54 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     dest = vault.ingest_file(target)
     print(f"Ingested {target.name} into {vault.name} raw directory.")
 
+
 def cmd_compile(args: argparse.Namespace) -> None:
     state = StateManager()
     vault = require_active_topic(state)
-    raw_files = vault.list_raw_files()
-    pending = [f for f in raw_files if f.parent.name != "processed"]
-    
+    pending = vault.list_raw_files()
+
     if not pending:
         print("No raw files to compile.")
         return
-        
+
     try:
         compiler = CompilerEngine(vault)
     except RuntimeError as e:
         print(e)
         sys.exit(1)
-        
+
     processed_dir = vault.raw_dir / "processed"
     processed_dir.mkdir(exist_ok=True)
-    
+
     for f in pending:
         print(f"Compiling {f.name}...")
         try:
             compiler.summarize_and_compile(f)
             f.rename(processed_dir / f.name)
             print(f"  -> Done.")
-        except Exception as e:
+        except (RuntimeError, OSError) as e:
             print(f"  -> Failed: {e}")
+
 
 def cmd_ask(args: argparse.Namespace) -> None:
     state = StateManager()
     vault = require_active_topic(state)
-    
+
     mode = "report"
     if args.slides:
         mode = "slides"
     elif args.data:
         mode = "data"
-        
+
     print(f"Querying topic: {vault.name} (mode: {mode})...")
     try:
         engine = QueryEngine(vault)
         outfile = engine.execute_query(args.question, mode)
         print(f"Saved response to: {outfile}")
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         print(f"Query failed: {e}")
         sys.exit(1)
+
 
 def check_pro_license():
     if not os.environ.get("FITI_PRO_KEY"):
@@ -116,18 +133,19 @@ def check_pro_license():
         print("The automated memory linter is a premium feature. Please upgrade at fiti.sh/pro and set FITI_PRO_KEY.")
         sys.exit(1)
 
+
 def cmd_lint(args: argparse.Namespace) -> None:
     check_pro_license()
     state = StateManager()
     vault = require_active_topic(state)
-    
+
     print(f"Linting topic: {vault.name}...")
     try:
         linter = LinterEngine(vault)
     except RuntimeError as e:
         print(e)
         sys.exit(1)
-        
+
     broken_links = linter.find_broken_links()
     if broken_links:
         print(f"Found {len(broken_links)} broken links:")
@@ -135,10 +153,11 @@ def cmd_lint(args: argparse.Namespace) -> None:
             print(f"  - {bl}")
     else:
         print("No broken links found.")
-        
+
     print("\nRunning LLM Health Check...")
     result = linter.run_health_check(fix=args.fix)
     print(f"\n{result}")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fiti - Topic-Scoped LLM Knowledge CLI")
@@ -175,6 +194,7 @@ def main() -> None:
 
     args = parser.parse_args()
     args.func(args)
-    
+
+
 if __name__ == "__main__":
     main()
