@@ -1,0 +1,13 @@
+{
+    "stop_reason": "end_turn",
+    "content": [
+        {
+            "type": "text",
+            "text": "# Python Report\n\nBased on the knowledge base, here is a comprehensive overview of Python."
+        }
+    ],
+    "usage": {
+        "input_tokens": 200,
+        "output_tokens": 150
+    }
+}

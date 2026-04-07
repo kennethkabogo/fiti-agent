@@ -11,6 +11,7 @@ _DEFAULTS: dict[str, Any] = {
     "max_tokens_query": 2048,
     "max_agent_steps": 10,
     "retry_attempts": 3,
+    "watch_interval": 5,                     # seconds between polls in fiti watch
 }
 
 

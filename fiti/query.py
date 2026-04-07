@@ -9,30 +9,39 @@ class QueryEngine:
         self.vault = vault
         self.client = client or APIClient()
 
-    def _gather_context(self) -> str:
+    def _gather_context_from_vault(self, vault, label_prefix: str = "") -> str:
         context = ""
-        vault_root = self.vault.base_dir.resolve()
+        vault_root = vault.base_dir.resolve()
 
-        if self.vault.index_file.exists() and not self.vault.index_file.is_symlink():
-            with open(self.vault.index_file, "r") as f:
-                context += f"--- INDEX.md ---\n{f.read()}\n\n"
+        if vault.index_file.exists() and not vault.index_file.is_symlink():
+            with open(vault.index_file, "r") as f:
+                context += f"--- {label_prefix}INDEX.md ---\n{f.read()}\n\n"
 
-        if self.vault.wiki_summaries_dir.exists():
-            for p in self.vault.wiki_summaries_dir.rglob("*.md"):
+        if vault.wiki_summaries_dir.exists():
+            for p in vault.wiki_summaries_dir.rglob("*.md"):
                 if not p.is_symlink() and p.resolve().is_relative_to(vault_root):
                     with open(p, "r") as f:
-                        context += f"--- SUMMARY: {p.name} ---\n{f.read()}\n\n"
+                        context += f"--- {label_prefix}SUMMARY: {p.name} ---\n{f.read()}\n\n"
 
-        if self.vault.wiki_concepts_dir.exists():
-            for p in self.vault.wiki_concepts_dir.rglob("*.md"):
+        if vault.wiki_concepts_dir.exists():
+            for p in vault.wiki_concepts_dir.rglob("*.md"):
                 if not p.is_symlink() and p.resolve().is_relative_to(vault_root):
                     with open(p, "r") as f:
-                        context += f"--- CONCEPT: {p.name} ---\n{f.read()}\n\n"
+                        context += f"--- {label_prefix}CONCEPT: {p.name} ---\n{f.read()}\n\n"
 
         return context
 
-    def execute_query(self, question: str, mode: str):
-        context = self._gather_context()
+    def _gather_context(self, extra_vaults: list | None = None) -> str:
+        vaults = [self.vault] + (extra_vaults or [])
+        multi = len(vaults) > 1
+        context = ""
+        for vault in vaults:
+            prefix = f"[{vault.name}] " if multi else ""
+            context += self._gather_context_from_vault(vault, label_prefix=prefix)
+        return context
+
+    def execute_query(self, question: str, mode: str, extra_vaults: list | None = None):
+        context = self._gather_context(extra_vaults)
 
         if mode == "slides":
             sys_prompt = "You are a presentation generator. Based on the provided knowledge base, answer the user's question by formatting the output as a Marp markdown presentation. Start with Marp frontmatter (e.g. ---\nmarp: true\ntheme: default\n---). Separate slides with `---`."

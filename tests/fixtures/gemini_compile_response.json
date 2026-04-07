@@ -1,0 +1,18 @@
+{
+    "candidates": [
+        {
+            "content": {
+                "parts": [
+                    {
+                        "text": "[[SUMMARY]]\n## My Note\n\nThis note covers the basics of Python.\n[[END_SUMMARY]]\n\n[[UPDATED_INDEX]]\n# test Index\n\n## Concepts\n- [[python_basics]]: Introduction to Python.\n[[END_UPDATED_INDEX]]"
+                    }
+                ]
+            }
+        }
+    ],
+    "usageMetadata": {
+        "promptTokenCount": 100,
+        "candidatesTokenCount": 75,
+        "totalTokenCount": 175
+    }
+}
