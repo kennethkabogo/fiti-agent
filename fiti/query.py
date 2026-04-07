@@ -11,19 +11,23 @@ class QueryEngine:
 
     def _gather_context(self) -> str:
         context = ""
-        if self.vault.index_file.exists():
+        vault_root = self.vault.base_dir.resolve()
+
+        if self.vault.index_file.exists() and not self.vault.index_file.is_symlink():
             with open(self.vault.index_file, "r") as f:
                 context += f"--- INDEX.md ---\n{f.read()}\n\n"
 
         if self.vault.wiki_summaries_dir.exists():
             for p in self.vault.wiki_summaries_dir.rglob("*.md"):
-                with open(p, "r") as f:
-                    context += f"--- SUMMARY: {p.name} ---\n{f.read()}\n\n"
+                if not p.is_symlink() and p.resolve().is_relative_to(vault_root):
+                    with open(p, "r") as f:
+                        context += f"--- SUMMARY: {p.name} ---\n{f.read()}\n\n"
 
         if self.vault.wiki_concepts_dir.exists():
             for p in self.vault.wiki_concepts_dir.rglob("*.md"):
-                with open(p, "r") as f:
-                    context += f"--- CONCEPT: {p.name} ---\n{f.read()}\n\n"
+                if not p.is_symlink() and p.resolve().is_relative_to(vault_root):
+                    with open(p, "r") as f:
+                        context += f"--- CONCEPT: {p.name} ---\n{f.read()}\n\n"
 
         return context
 
@@ -50,6 +54,9 @@ USER QUESTION: {question}
 
 If mode is data, please save the generated plot to {self.vault.assets_dir}/plot_{int(datetime.now().timestamp())}.png
 """
+        if mode == "data":
+            print("[WARNING] The generated .py file contains LLM-generated code. Review carefully before executing.")
+
         response = self.client.call(prompt, max_tokens=2048)
 
         if mode == "data":
@@ -61,6 +68,9 @@ If mode is data, please save the generated plot to {self.vault.assets_dir}/plot_
         slug = re.sub(r'[^a-zA-Z0-9]+', '_', question.lower())[:30].strip('_') or "query"
         timestamp = int(datetime.now().timestamp())
         outfile = self.vault.wiki_queries_dir / f"{slug}_{timestamp}.{extension}"
+
+        if outfile.is_symlink():
+            raise RuntimeError(f"Output path is a symlink: {outfile}")
 
         with open(outfile, "w") as f:
             f.write(response)

@@ -9,7 +9,7 @@ class CompilerEngine:
         self.client = client or APIClient()
 
     def summarize_and_compile(self, file_path: Path):
-        with open(file_path, "r") as f:
+        with open(file_path, "r", errors="replace") as f:
             content = f.read()
 
         with open(self.vault.index_file, "r") as f:
@@ -20,14 +20,14 @@ You are the maintainer of a personal knowledge base wiki for the topic "{self.va
 I have a new raw document named "{file_path.name}".
 
 Raw Document Content:
----
+<document>
 {content}
----
+</document>
 
 Current Wiki Index:
----
+<index>
 {index_content}
----
+</index>
 
 Task 1: Summarize the Raw Document.
 Task 2: Identify any core concepts that should be added to the Index.
@@ -51,6 +51,14 @@ Output your response EXACTLY in this format:
             updated_index = index_match.group(1).strip()
 
             summary_path = self.vault.wiki_summaries_dir / f"{file_path.stem}_summary.md"
+            if summary_path.is_symlink():
+                raise RuntimeError(f"Output path is a symlink: {summary_path}")
+            if self.vault.index_file.is_symlink():
+                raise RuntimeError("INDEX.md is a symlink — refusing to overwrite.")
+
+            # Back up current index before modifying
+            self.vault.backup_index()
+
             with open(summary_path, "w") as f:
                 f.write(summary)
 
@@ -59,4 +67,4 @@ Output your response EXACTLY in this format:
 
             return True
         else:
-            raise RuntimeError(f"Failed to parse LLM output: {response}")
+            raise RuntimeError("Failed to parse LLM output: unexpected response format.")
