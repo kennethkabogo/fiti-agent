@@ -43,11 +43,11 @@ class APIClient:
         except (KeyError, IndexError) as e:
             raise RuntimeError(f"Unexpected Gemini API response structure: {e}\nBody: {body}")
 
-    def call_anthropic(self, prompt: str) -> str:
+    def call_anthropic(self, prompt: str, max_tokens: int = 1024) -> str:
         url = "https://api.anthropic.com/v1/messages"
         payload = json.dumps({
             "model": ANTHROPIC_MODEL,
-            "max_tokens": 1024,
+            "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": prompt}],
         }).encode()
         req = urllib.request.Request(url, data=payload, headers={
@@ -72,8 +72,8 @@ class APIClient:
         except (KeyError, IndexError) as e:
             raise RuntimeError(f"Unexpected Anthropic API response structure: {e}\nBody: {body}")
 
-    def call(self, prompt: str) -> str:
+    def call(self, prompt: str, max_tokens: int = 1024) -> str:
         """Call whichever API is configured, preferring Gemini."""
         if self.gemini_api_key:
             return self.call_gemini(prompt)
-        return self.call_anthropic(prompt)
+        return self.call_anthropic(prompt, max_tokens=max_tokens)
