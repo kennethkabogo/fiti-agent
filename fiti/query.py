@@ -50,7 +50,7 @@ USER QUESTION: {question}
 
 If mode is data, please save the generated plot to {self.vault.assets_dir}/plot_{int(datetime.now().timestamp())}.png
 """
-        response = self.client.call(prompt)
+        response = self.client.call(prompt, max_tokens=2048)
 
         if mode == "data":
             response = re.sub(r"^```python\n", "", response)

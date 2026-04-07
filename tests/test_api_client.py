@@ -101,8 +101,26 @@ def test_call_prefers_gemini_when_both_keys_set():
     client = make_client(gemini_key="gkey", anthropic_key="akey")
     called = []
 
-    with patch.object(client, "call_gemini", side_effect=lambda p: called.append("gemini") or "ok") as mg:
-        with patch.object(client, "call_anthropic", side_effect=lambda p: called.append("anthropic") or "ok"):
+    with patch.object(client, "call_gemini", side_effect=lambda p: called.append("gemini") or "ok"):
+        with patch.object(client, "call_anthropic", side_effect=lambda p, max_tokens=1024: called.append("anthropic") or "ok"):
             client.call("prompt")
 
     assert called == ["gemini"]
+
+
+def test_anthropic_respects_max_tokens():
+    client = make_client(gemini_key=None, anthropic_key="ant-key")
+    captured_payloads = []
+
+    def fake_urlopen(req, timeout=None):
+        captured_payloads.append(json.loads(req.data))
+        mock_resp = MagicMock()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_resp.read.return_value = json.dumps({"content": [{"text": "ok"}]}).encode()
+        return mock_resp
+
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        client.call_anthropic("prompt", max_tokens=2048)
+
+    assert captured_payloads[0]["max_tokens"] == 2048
