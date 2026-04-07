@@ -54,7 +54,8 @@ def test_to_dict_returns_all_keys(tmp_path):
     d = cfg.to_dict()
     assert "gemini_model" in d
     assert "retry_attempts" in d
-    assert len(d) == 8
+    assert "watch_interval" in d
+    assert len(d) == 9
 
 
 def test_get_config_cached(tmp_path):

@@ -25,6 +25,22 @@ class APIClient:
         if not self.anthropic_api_key and not self.gemini_api_key:
             raise RuntimeError("API Key required. Set GEMINI_API_KEY or ANTHROPIC_API_KEY.")
 
+        self._session_usage: dict = {"input_tokens": 0, "output_tokens": 0}
+
+    def get_usage(self) -> dict:
+        """Return accumulated token counts for this APIClient session."""
+        return dict(self._session_usage)
+
+    def _record_usage_anthropic(self, body: dict) -> None:
+        u = body.get("usage", {})
+        self._session_usage["input_tokens"] += u.get("input_tokens", 0)
+        self._session_usage["output_tokens"] += u.get("output_tokens", 0)
+
+    def _record_usage_gemini(self, body: dict) -> None:
+        u = body.get("usageMetadata", {})
+        self._session_usage["input_tokens"] += u.get("promptTokenCount", 0)
+        self._session_usage["output_tokens"] += u.get("candidatesTokenCount", 0)
+
     # ── Shared HTTP layer with retry ───────────────────────────────────────
 
     def _http_post(self, url: str, payload: bytes, headers: dict, provider: str) -> dict:
@@ -65,6 +81,7 @@ class APIClient:
             "Content-Type": "application/json",
             "x-goog-api-key": self.gemini_api_key,
         }, "Gemini")
+        self._record_usage_gemini(body)
         try:
             return body["candidates"][0]["content"]["parts"][0]["text"]
         except (KeyError, IndexError) as e:
@@ -87,6 +104,7 @@ class APIClient:
             },
             "Anthropic",
         )
+        self._record_usage_anthropic(body)
         try:
             return body["content"][0]["text"]
         except (KeyError, IndexError) as e:
@@ -152,6 +170,7 @@ class APIClient:
             "Anthropic",
         )
 
+        self._record_usage_anthropic(body)
         stop_reason = body.get("stop_reason", "end_turn")
         content_blocks = body.get("content", [])
 
@@ -258,6 +277,7 @@ class APIClient:
             "Gemini",
         )
 
+        self._record_usage_gemini(body)
         try:
             parts = body["candidates"][0]["content"]["parts"]
         except (KeyError, IndexError) as e:

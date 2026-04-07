@@ -1,5 +1,6 @@
 import json
 import re
+import time
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -116,14 +117,55 @@ class AgentExecutor:
             "fetch_url": self._fetch_url,
         }
 
-    def run(self, goal: str, max_iterations: int = 10) -> str:
+    @property
+    def sessions_dir(self) -> Path:
+        return self.vault.base_dir / "agent_sessions"
+
+    def list_sessions(self) -> list:
+        """Return summary of saved sessions, newest first."""
+        if not self.sessions_dir.exists():
+            return []
+        sessions = []
+        for f in sorted(self.sessions_dir.glob("*.json"), reverse=True):
+            if f.is_symlink():
+                continue
+            try:
+                data = json.loads(f.read_text())
+                sessions.append({
+                    "id": f.stem,
+                    "goal": data.get("goal", ""),
+                    "steps": len([m for m in data.get("messages", []) if m.get("role") == "assistant"]),
+                })
+            except (json.JSONDecodeError, OSError):
+                pass
+        return sessions
+
+    def run(self, goal: str, max_iterations: int = 10, resume_id: str | None = None) -> str:
         system = (
             f"You are an autonomous agent managing the '{self.vault.name}' knowledge vault. "
             "Use the provided tools to accomplish the user's goal step by step. "
             "Think carefully before each tool call. When the goal is complete, "
             "provide a final summary of what was accomplished."
         )
-        messages = [{"role": "user", "content": goal}]
+
+        if resume_id:
+            session_file = self.sessions_dir / f"{resume_id}.json"
+            if session_file.exists() and not session_file.is_symlink():
+                try:
+                    data = json.loads(session_file.read_text())
+                    messages = data["messages"]
+                    messages.append({"role": "user", "content": goal})
+                    print(f"  [agent] Resuming session {resume_id} ({len(messages)-1} prior messages)")
+                except (json.JSONDecodeError, KeyError):
+                    print(f"  [agent] Could not load session {resume_id!r}, starting fresh.")
+                    messages = [{"role": "user", "content": goal}]
+            else:
+                print(f"  [agent] Session {resume_id!r} not found, starting fresh.")
+                messages = [{"role": "user", "content": goal}]
+        else:
+            messages = [{"role": "user", "content": goal}]
+
+        final_text = "Max iterations reached without completing the goal."
 
         for iteration in range(max_iterations):
             response = self.client.call_with_tools(messages, TOOLS, system=system)
@@ -132,7 +174,9 @@ class AgentExecutor:
                 print(f"  [agent] {response['text'][:200]}")
 
             if response["stop_reason"] == "end_turn":
-                return response["text"] or "(No response)"
+                final_text = response["text"] or "(No response)"
+                messages = response["raw_messages"]
+                break
 
             tool_calls = response["tool_calls"]
             results = []
@@ -149,7 +193,22 @@ class AgentExecutor:
 
             messages = self.client.inject_tool_results(response["raw_messages"], tool_calls, results)
 
-        return "Max iterations reached without completing the goal."
+        # Persist session
+        self.sessions_dir.mkdir(exist_ok=True)
+        session_id = str(int(time.time()))
+        session_file = self.sessions_dir / f"{session_id}.json"
+        try:
+            session_file.write_text(json.dumps({
+                "goal": goal,
+                "messages": messages,
+                "timestamp": int(time.time()),
+            }, indent=2))
+            session_file.chmod(0o600)
+            print(f"  [agent] Session saved as {session_id}")
+        except OSError:
+            pass
+
+        return final_text
 
     # ── Tool implementations ───────────────────────────────────────────────
 

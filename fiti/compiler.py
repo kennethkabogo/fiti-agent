@@ -1,4 +1,6 @@
+import os
 import re
+import tempfile
 from pathlib import Path
 from fiti.api_client import APIClient
 
@@ -62,8 +64,21 @@ Output your response EXACTLY in this format:
             with open(summary_path, "w") as f:
                 f.write(summary)
 
-            with open(self.vault.index_file, "w") as f:
-                f.write(updated_index)
+            # Write INDEX.md atomically via temp file
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=self.vault.wiki_dir, suffix=".tmp"
+            )
+            try:
+                with os.fdopen(tmp_fd, "w") as f:
+                    f.write(updated_index)
+                os.chmod(tmp_path, 0o600)
+                os.replace(tmp_path, str(self.vault.index_file))
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
 
             return True
         else:

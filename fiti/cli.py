@@ -34,6 +34,16 @@ def require_active_topic(state) -> TopicVault:
     return vault
 
 
+def _print_usage(client: APIClient) -> None:
+    """Print accumulated token counts if any were recorded."""
+    usage = client.get_usage()
+    total = usage["input_tokens"] + usage["output_tokens"]
+    if total > 0:
+        print(colors.dim(
+            f"Tokens: {usage['input_tokens']:,} in + {usage['output_tokens']:,} out = {total:,} total"
+        ))
+
+
 # ── Vault management ───────────────────────────────────────────────────────
 
 def cmd_new(args: argparse.Namespace) -> None:
@@ -163,24 +173,37 @@ def cmd_compile(args: argparse.Namespace) -> None:
         print(colors.dim("No raw files to compile."))
         return
 
-    try:
-        compiler = CompilerEngine(vault)
-    except RuntimeError as e:
-        print(colors.red(str(e)))
-        sys.exit(1)
+    if args.dry_run:
+        print(colors.bold(f"Dry run — {len(pending)} file(s) would be compiled:"))
+        for f in pending:
+            print(f"  {colors.dim('-')} {f.name}")
+        return
 
     processed_dir = vault.raw_dir / "processed"
     processed_dir.mkdir(exist_ok=True)
     total = len(pending)
 
-    for i, f in enumerate(pending, 1):
-        print(f"{colors.dim(f'[{i}/{total}]')} Compiling {colors.bold(f.name)}...")
-        try:
-            compiler.summarize_and_compile(f)
-            f.rename(processed_dir / f.name)
-            print(f"  {colors.green('done')}")
-        except (RuntimeError, OSError) as e:
-            print(f"  {colors.red(f'failed: {e}')}")
+    try:
+        with vault.locked():
+            try:
+                compiler = CompilerEngine(vault)
+            except RuntimeError as e:
+                print(colors.red(str(e)))
+                sys.exit(1)
+
+            for i, f in enumerate(pending, 1):
+                print(f"{colors.dim(f'[{i}/{total}]')} Compiling {colors.bold(f.name)}...")
+                try:
+                    compiler.summarize_and_compile(f)
+                    f.rename(processed_dir / f.name)
+                    print(f"  {colors.green('done')}")
+                except (RuntimeError, OSError) as e:
+                    print(f"  {colors.red(f'failed: {e}')}")
+
+            _print_usage(compiler.client)
+    except RuntimeError as e:
+        print(colors.red(str(e)))
+        sys.exit(1)
 
 
 def cmd_search(args: argparse.Namespace) -> None:
@@ -228,17 +251,33 @@ def cmd_ask(args: argparse.Namespace) -> None:
     state = StateManager()
     vault = require_active_topic(state)
 
+    # Resolve any extra vaults from --topics
+    extra_vaults = []
+    if args.topics:
+        for t in args.topics.split(','):
+            t = t.strip()
+            if not t or t == vault.name:
+                continue
+            _validate_topic(t)
+            v = TopicVault(t)
+            if not v.exists():
+                print(colors.red(f"Topic '{t}' not found. Create it with `fiti new {t}`."))
+                sys.exit(1)
+            extra_vaults.append(v)
+
     mode = "report"
     if args.slides:
         mode = "slides"
     elif args.data:
         mode = "data"
 
-    print(f"Querying {colors.bold(vault.name)} ({colors.dim(mode)})...")
+    all_names = [vault.name] + [v.name for v in extra_vaults]
+    print(f"Querying {colors.bold(', '.join(all_names))} ({colors.dim(mode)})...")
     try:
         engine = QueryEngine(vault)
-        outfile = engine.execute_query(args.question, mode)
+        outfile = engine.execute_query(args.question, mode, extra_vaults=extra_vaults)
         print(colors.green(f"Saved to: {outfile}"))
+        _print_usage(engine.client)
     except (RuntimeError, OSError) as e:
         print(colors.red(f"Query failed: {e}"))
         sys.exit(1)
@@ -292,6 +331,10 @@ def cmd_lint(args: argparse.Namespace) -> None:
     else:
         print(colors.green("No broken links found."))
 
+    if args.dry_run:
+        print(colors.dim("(Dry run — no LLM health check or index fixes applied)"))
+        return
+
     print(f"\n{colors.dim('Running LLM Health Check...')}")
     result = linter.run_health_check(fix=args.fix)
     print(f"\n{result}")
@@ -300,17 +343,87 @@ def cmd_lint(args: argparse.Namespace) -> None:
 def cmd_agent(args: argparse.Namespace) -> None:
     state = StateManager()
     vault = require_active_topic(state)
+
+    from fiti.agent import AgentExecutor
+    client = APIClient()
+    executor = AgentExecutor(vault, client)
+
+    if args.list_sessions:
+        sessions = executor.list_sessions()
+        if not sessions:
+            print(colors.dim("No saved sessions for this vault."))
+        else:
+            print(colors.bold("Saved agent sessions:"))
+            for s in sessions:
+                print(f"  {colors.cyan(s['id'])}  {s['steps']} steps  {colors.dim(s['goal'][:60])}")
+        return
+
     max_steps = args.max_steps if args.max_steps else get_config().max_agent_steps
     print(f"Agent on {colors.bold(vault.name)}  goal: {colors.cyan(args.goal)}\n")
     try:
-        from fiti.agent import AgentExecutor
-        client = APIClient()
-        executor = AgentExecutor(vault, client)
-        result = executor.run(args.goal, max_iterations=max_steps)
+        result = executor.run(args.goal, max_iterations=max_steps, resume_id=args.resume)
         print(f"\n{result}")
+        _print_usage(client)
     except (RuntimeError, OSError) as e:
         print(colors.red(f"Agent failed: {e}"))
         sys.exit(1)
+
+
+def cmd_watch(args: argparse.Namespace) -> None:
+    import time as _time
+    state = StateManager()
+    vault = require_active_topic(state)
+
+    target = Path(args.dir)
+    if not target.exists() or not target.is_dir():
+        print(colors.red(f"Directory not found: {target}"))
+        sys.exit(1)
+
+    interval = get_config().watch_interval
+    print(
+        f"Watching {colors.bold(str(target))} → vault {colors.bold(vault.name)}"
+        f"  (interval: {interval}s, Ctrl-C to stop)"
+    )
+    if args.compile:
+        print(colors.dim("  Auto-compile enabled."))
+
+    seen = {p.name for p in target.iterdir() if p.is_file() and not p.is_symlink()}
+
+    try:
+        while True:
+            _time.sleep(interval)
+            current = {p.name for p in target.iterdir() if p.is_file() and not p.is_symlink()}
+            new_files = current - seen
+            for fname in sorted(new_files):
+                fpath = target / fname
+                try:
+                    vault.ingest_file(fpath)
+                    print(colors.green(f"[watch] Ingested: {fname}"))
+                    if args.compile:
+                        _watch_compile_one(vault, fname)
+                except ValueError as e:
+                    print(colors.yellow(f"[watch] Skipped {fname}: {e}"))
+            seen = current
+    except KeyboardInterrupt:
+        print(colors.dim("\nWatch stopped."))
+
+
+def _watch_compile_one(vault: TopicVault, ingested_name: str) -> None:
+    """Compile only the freshly ingested file."""
+    pending = [f for f in vault.list_raw_files() if f.name == ingested_name]
+    if not pending:
+        return
+    try:
+        compiler = CompilerEngine(vault)
+        processed_dir = vault.raw_dir / "processed"
+        processed_dir.mkdir(exist_ok=True)
+        f = pending[0]
+        print(f"  Compiling {colors.bold(f.name)}...")
+        compiler.summarize_and_compile(f)
+        f.rename(processed_dir / f.name)
+        print(f"  {colors.green('done')}")
+    except (RuntimeError, OSError) as e:
+        print(f"  {colors.red(f'compile failed: {e}')}")
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
@@ -343,6 +456,8 @@ def main() -> None:
     p_ingest.set_defaults(func=cmd_ingest)
 
     p_compile = sub.add_parser("compile", help="Run LLM to process uncompiled raw docs")
+    p_compile.add_argument("--dry-run", action="store_true",
+                           help="Show what would be compiled without calling the LLM")
     p_compile.set_defaults(func=cmd_compile)
 
     p_search = sub.add_parser("search", help="Search the wiki for a keyword")
@@ -353,6 +468,8 @@ def main() -> None:
 
     p_ask = sub.add_parser("ask", help="Ask a question against the active topic wiki")
     p_ask.add_argument("question")
+    p_ask.add_argument("--topics", metavar="T1,T2",
+                       help="Comma-separated extra vault names to include as context")
     group = p_ask.add_mutually_exclusive_group()
     group.add_argument("--slides", action="store_true", help="Output as Marp slide deck")
     group.add_argument("--data", action="store_true", help="Output as matplotlib chart script")
@@ -360,13 +477,26 @@ def main() -> None:
 
     p_lint = sub.add_parser("lint", help="Run health check and find broken links (PRO)")
     p_lint.add_argument("--fix", action="store_true", help="Auto-fix and rebuild the Index")
+    p_lint.add_argument("--dry-run", action="store_true",
+                        help="Find broken links only, skip LLM health check and writes")
     p_lint.set_defaults(func=cmd_lint)
 
     p_agent = sub.add_parser("agent", help="Run an autonomous multi-step workflow")
-    p_agent.add_argument("goal", help="What you want the agent to accomplish")
+    p_agent.add_argument("goal", nargs="?", default="",
+                         help="What you want the agent to accomplish")
     p_agent.add_argument("--max-steps", type=int, default=None, metavar="N",
-                         help=f"Max tool-use iterations (default: config max_agent_steps)")
+                         help="Max tool-use iterations (default: config max_agent_steps)")
+    p_agent.add_argument("--resume", metavar="SESSION_ID",
+                         help="Resume a previous agent session by its ID")
+    p_agent.add_argument("--list-sessions", action="store_true",
+                         help="List saved agent sessions for the active vault")
     p_agent.set_defaults(func=cmd_agent)
+
+    p_watch = sub.add_parser("watch", help="Monitor a directory and auto-ingest new files")
+    p_watch.add_argument("dir", help="Directory to watch")
+    p_watch.add_argument("--compile", "-c", action="store_true",
+                         help="Auto-compile each ingested file immediately")
+    p_watch.set_defaults(func=cmd_watch)
 
     p_config = sub.add_parser("config", help="Show active configuration")
     p_config.set_defaults(func=cmd_config)

@@ -1,0 +1,13 @@
+{
+    "stop_reason": "end_turn",
+    "content": [
+        {
+            "type": "text",
+            "text": "[[SUMMARY]]\n## My Note\n\nThis note covers the basics of Python.\n[[END_SUMMARY]]\n\n[[UPDATED_INDEX]]\n# test Index\n\n## Concepts\n- [[python_basics]]: Introduction to Python.\n[[END_UPDATED_INDEX]]"
+        }
+    ],
+    "usage": {
+        "input_tokens": 120,
+        "output_tokens": 85
+    }
+}

@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+from contextlib import contextmanager
 from pathlib import Path
 from typing import List
 
@@ -68,6 +69,45 @@ class TopicVault:
         shutil.copy2(file_path, dest)
         dest.chmod(0o600)
         return dest
+
+    # ── Lock file ──────────────────────────────────────────────────────────
+
+    @property
+    def lock_file(self) -> Path:
+        return self.base_dir / ".lock"
+
+    def acquire_lock(self) -> None:
+        """Acquire exclusive lock using O_EXCL. Raises RuntimeError if locked."""
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+        except FileExistsError:
+            try:
+                pid = int(self.lock_file.read_text().strip())
+                os.kill(pid, 0)  # Check if process is still alive
+                raise RuntimeError(
+                    f"Vault '{self.name}' is locked by PID {pid}. "
+                    "Another fiti process may be running. "
+                    f"If not, remove {self.lock_file} manually."
+                )
+            except (ValueError, ProcessLookupError):
+                # Stale lock — remove and retry once
+                self.lock_file.unlink(missing_ok=True)
+                self.acquire_lock()
+
+    def release_lock(self) -> None:
+        self.lock_file.unlink(missing_ok=True)
+
+    @contextmanager
+    def locked(self):
+        """Context manager that holds the vault compile lock."""
+        self.acquire_lock()
+        try:
+            yield
+        finally:
+            self.release_lock()
 
     def backup_index(self) -> Path | None:
         """Copy INDEX.md to INDEX.md.bak. Returns backup path, or None if no index exists."""
