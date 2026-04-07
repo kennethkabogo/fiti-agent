@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -23,10 +24,18 @@ class StateManager:
             return {}
 
     def save_state(self, state: dict):
-        tmp = self.state_file.with_suffix(".json.tmp")
-        with open(tmp, "w") as f:
-            json.dump(state, f, indent=2)
-        os.replace(tmp, self.state_file)
+        fd, tmp = tempfile.mkstemp(dir=self.config_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(state, f, indent=2)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, self.state_file)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
     def get_active_topic(self) -> Optional[str]:
         return self.load_state().get("active_topic")

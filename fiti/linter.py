@@ -12,9 +12,14 @@ class LinterEngine:
 
     def find_broken_links(self) -> List[str]:
         broken = []
-        wiki_files = list(self.vault.wiki_dir.rglob("*.md"))
+        vault_root = self.vault.wiki_dir.resolve()
+        wiki_files = [
+            p for p in self.vault.wiki_dir.rglob("*.md")
+            if not p.is_symlink() and p.resolve().is_relative_to(vault_root)
+        ]
 
-        valid_concepts = {p.stem for p in self.vault.wiki_concepts_dir.rglob("*.md")}
+        valid_concepts = {p.stem for p in self.vault.wiki_concepts_dir.rglob("*.md")
+                          if not p.is_symlink()}
 
         for f in wiki_files:
             with open(f, "r") as file:
@@ -29,7 +34,7 @@ class LinterEngine:
 
     def run_health_check(self, fix: bool = False):
         index_content = ""
-        if self.vault.index_file.exists():
+        if self.vault.index_file.exists() and not self.vault.index_file.is_symlink():
             with open(self.vault.index_file, "r") as f:
                 index_content = f.read()
 
@@ -48,11 +53,13 @@ Identify any structural issues: duplicate or overlapping concepts, missing overa
             match = re.search(r"\[\[OPTIMIZED_INDEX\]\](.*?)\[\[END_OPTIMIZED_INDEX\]\]", response, re.DOTALL)
             if match:
                 opt_index = match.group(1).strip()
+                if self.vault.index_file.is_symlink():
+                    return "Error: INDEX.md is a symlink — refusing to overwrite."
                 with open(self.vault.index_file, "w") as f:
                     f.write(opt_index)
                 return "Index has been successfully rebuilt and optimized."
             else:
-                return f"Failed to parse optimization. Raw response:\n{response}"
+                return "Failed to parse optimization response."
         else:
             prompt += "\nOUTPUT REQUIREMENT: Provide a 3-bullet-point summary of recommended fixes for the index structure."
             return self.client.call(prompt)

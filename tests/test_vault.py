@@ -1,3 +1,5 @@
+import os
+import stat
 import pytest
 from pathlib import Path
 from unittest.mock import patch
@@ -52,6 +54,20 @@ def test_list_raw_files_excludes_processed(tmp_path):
     assert "done.md" not in names
 
 
+def test_list_raw_files_excludes_symlinks(tmp_path):
+    vault = make_vault(tmp_path)
+    vault.ensure_structure()
+    real = tmp_path / "real.md"
+    real.write_text("real")
+    link = vault.raw_dir / "link.md"
+    link.symlink_to(real)
+    (vault.raw_dir / "normal.md").write_text("normal")
+
+    names = [f.name for f in vault.list_raw_files()]
+    assert "normal.md" in names
+    assert "link.md" not in names
+
+
 def test_ingest_file_copies_to_raw(tmp_path):
     vault = make_vault(tmp_path)
     vault.ensure_structure()
@@ -61,21 +77,64 @@ def test_ingest_file_copies_to_raw(tmp_path):
     assert (vault.raw_dir / "note.md").exists()
 
 
-def test_ingest_file_rejects_path_traversal(tmp_path):
+def test_ingest_file_sets_permissions_600(tmp_path):
     vault = make_vault(tmp_path)
     vault.ensure_structure()
     src = tmp_path / "note.md"
     src.write_text("hello")
-    # Simulate a file_path whose .name contains a separator
-    evil = Path("/some/dir/../note.md")
-    # Rename src so its .name mimics traversal via monkey-patching name property
-    import types
-    fake = types.SimpleNamespace(name="../evil.md", __fspath__=lambda: str(src))
-    # Build a minimal Path-like; just test the guard directly
+    dest = vault.ingest_file(src)
+    mode = oct(stat.S_IMODE(dest.stat().st_mode))
+    assert mode == "0o600"
+
+
+def test_ingest_file_rejects_symlink(tmp_path):
+    vault = make_vault(tmp_path)
+    vault.ensure_structure()
+    real = tmp_path / "real.md"
+    real.write_text("data")
+    link = tmp_path / "link.md"
+    link.symlink_to(real)
+    with pytest.raises(ValueError, match="Symlinks are not allowed"):
+        vault.ingest_file(link)
+
+
+def test_ingest_file_rejects_oversized_file(tmp_path):
+    vault = make_vault(tmp_path)
+    vault.ensure_structure()
+    big = tmp_path / "big.md"
+    big.write_bytes(b"x" * (11 * 1024 * 1024))  # 11 MB
+    with pytest.raises(ValueError, match="exceeds"):
+        vault.ingest_file(big)
+
+
+def test_ingest_file_rejects_disallowed_extension(tmp_path):
+    vault = make_vault(tmp_path)
+    vault.ensure_structure()
+    exe = tmp_path / "malware.exe"
+    exe.write_bytes(b"MZ")
+    with pytest.raises(ValueError, match="not allowed"):
+        vault.ingest_file(exe)
+
+
+def test_ingest_file_rejects_path_traversal(tmp_path):
+    vault = make_vault(tmp_path)
+    vault.ensure_structure()
     from fiti import vault as vault_mod
-    import os
-    # Directly test: a filename with os.sep should raise
+
     class FakePath:
         name = f"..{os.sep}evil.md"
+
     with pytest.raises(ValueError, match="Invalid filename"):
         vault_mod.TopicVault.__dict__["ingest_file"](vault, FakePath())
+
+
+def test_vault_init_rejects_invalid_topic_name(tmp_path):
+    with patch.object(Path, "home", return_value=tmp_path):
+        with pytest.raises(ValueError, match="Invalid topic name"):
+            TopicVault("../evil")
+
+
+def test_vault_init_rejects_spaces_in_name(tmp_path):
+    with patch.object(Path, "home", return_value=tmp_path):
+        with pytest.raises(ValueError, match="Invalid topic name"):
+            TopicVault("my topic")

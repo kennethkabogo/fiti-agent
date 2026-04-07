@@ -7,6 +7,7 @@ from fiti.vault import TopicVault
 from fiti.compiler import CompilerEngine
 from fiti.query import QueryEngine
 from fiti.linter import LinterEngine
+from fiti.api_client import APIClient
 import os
 
 _TOPIC_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
@@ -127,6 +128,22 @@ def cmd_ask(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_agent(args: argparse.Namespace) -> None:
+    state = StateManager()
+    vault = require_active_topic(state)
+    print(f"Agent starting on topic: {vault.name}")
+    print(f"Goal: {args.goal}\n")
+    try:
+        from fiti.agent import AgentExecutor
+        client = APIClient()
+        executor = AgentExecutor(vault, client)
+        result = executor.run(args.goal, max_iterations=args.max_steps)
+        print(f"\n{result}")
+    except (RuntimeError, OSError) as e:
+        print(f"Agent failed: {e}")
+        sys.exit(1)
+
+
 def check_pro_license():
     if not os.environ.get("FITI_PRO_KEY"):
         print("⭐️ FITI PRO FEATURE ⭐️")
@@ -191,6 +208,12 @@ def main() -> None:
     p_lint = sub.add_parser("lint", help="Run health check and find broken links (PRO)")
     p_lint.add_argument("--fix", action="store_true", help="Auto-fix structural issues in the Index")
     p_lint.set_defaults(func=cmd_lint)
+
+    p_agent = sub.add_parser("agent", help="Run an autonomous multi-step workflow")
+    p_agent.add_argument("goal", help="What you want the agent to accomplish")
+    p_agent.add_argument("--max-steps", type=int, default=10, metavar="N",
+                         help="Max tool-use iterations (default: 10)")
+    p_agent.set_defaults(func=cmd_agent)
 
     args = parser.parse_args()
     args.func(args)
